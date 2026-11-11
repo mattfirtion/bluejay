@@ -1,0 +1,6 @@
+# Who gets notified when an alarm fires. Referenced by src/*/config.yml
+# (alarm.response_plan) and by alarm_response_plan in vars.tfvars.
+# Each plan = one SNS topic with these email subscribers (+ the Teams channel, if configured).
+default:
+  emails:
+    - matt.firtion@gmail.com

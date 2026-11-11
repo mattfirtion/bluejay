@@ -1,0 +1,16 @@
+name: ui-journey
+handler: ui_journey.handler
+runtime_version: syn-python-selenium-5.1
+schedule: rate(15 minutes)
+timeout_in_seconds: 90
+memory_in_mb: 960
+active_tracing: false
+success_retention_days: 7
+failure_retention_days: 31
+environment_variables:
+  PAGE_URL: https://example.com
+  APP_ROOT_SELECTOR: body
+alarm:
+  response_plan: default
+  datapoints_to_alarm: 2
+  evaluation_periods: 2
