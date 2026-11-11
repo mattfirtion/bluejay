@@ -2,6 +2,9 @@
 
 AWS CloudWatch Synthetics canaries (Python/Selenium), deployed with Terraform.
 
+See [docs/monitoring-plan.md](docs/monitoring-plan.md) for the monitoring plan, alarm thresholds,
+notification design and open TODOs.
+
 ## Layout
 - `src/<canary>/config.yml` – canary settings (schedule, handler, alarm)
 - `src/<canary>/python/<handler>.py` – canary code (same in every environment)
