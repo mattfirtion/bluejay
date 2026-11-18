@@ -11,7 +11,7 @@ variable "region" {
 variable "alarm_response_plan" {
   type        = string
   default     = "default"
-  description = "Key in config/<env>/response_plans.yml that receives infrastructure alarms"
+  description = "Key in config/response_plans.yml (or env overrides.yml) that receives infrastructure alarms"
 }
 
 variable "cloudfront_distribution_id" {

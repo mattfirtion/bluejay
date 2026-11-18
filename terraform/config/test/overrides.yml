@@ -1,0 +1,13 @@
+# Per-env overrides, merged over src/<canary>/config.yml and config/response_plans.yml.
+# List only what differs. environment_variables and alarm merge key by key; other keys replace.
+canaries: {}
+#  http_checks:
+#    schedule: rate(5 minutes)
+#    environment_variables:
+#      INDEX_JS_URL: https://search.test.example.com/index.js
+#      API_URL: https://search.test.example.com/api/q
+#    alarm:
+#      response_plan: default
+response_plans: {}
+#  default:
+#    emails: [test-team@example.com]

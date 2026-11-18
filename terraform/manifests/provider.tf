@@ -6,7 +6,10 @@ terraform {
     archive = { source = "hashicorp/archive", version = "~> 2.4" }
   }
 
-  backend "s3" {}
+  # OpenTofu 1.8+: variables allowed here. Key is per-env; the bucket comes from -backend-config.
+  backend "s3" {
+    key = "ss-canary/${var.environment}/terraform.tfstate"
+  }
 }
 
 provider "aws" {

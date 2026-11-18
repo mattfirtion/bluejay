@@ -1,6 +1,4 @@
-environment = "dev"
-region      = "us-east-1"
-
+# Only what differs from config/common.tfvars.
 # TODO: replace placeholders
 cloudfront_distribution_id = "EXXXXXXXXXXXXX"
 alb_arn_suffix             = "app/CHANGE-ME/0000000000000000"

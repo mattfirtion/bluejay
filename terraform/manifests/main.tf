@@ -1,13 +1,35 @@
 data "aws_caller_identity" "current" {}
 
 locals {
-  src_dir        = "${path.module}/../../src"
-  response_plans = yamldecode(file("${path.module}/../config/${var.environment}/response_plans.yml"))
+  src_dir = "${path.module}/../../src"
 
-  # One canary per src/<name>/config.yml, deployed to every environment
+  # Shared defaults in config/, per-env deltas in config/<env>/overrides.yml
+  overrides_file = "${path.module}/../config/${var.environment}/overrides.yml"
+  overrides      = try(yamldecode(file(local.overrides_file)), {})
+
+  response_plans = merge(
+    yamldecode(file("${path.module}/../config/response_plans.yml")),
+    try(local.overrides.response_plans, {})
+  )
+
+  # One canary per src/<name>/config.yml, deployed to every environment.
+  # environment_variables and alarm merge key by key; other keys are replaced by the override.
   canaries = {
     for f in fileset(local.src_dir, "*/config.yml") :
-    dirname(f) => yamldecode(file("${local.src_dir}/${f}"))
+    dirname(f) => merge(
+      yamldecode(file("${local.src_dir}/${f}")),
+      try(local.overrides.canaries[dirname(f)], {}),
+      {
+        environment_variables = merge(
+          yamldecode(file("${local.src_dir}/${f}")).environment_variables,
+          try(local.overrides.canaries[dirname(f)].environment_variables, {})
+        )
+        alarm = merge(
+          yamldecode(file("${local.src_dir}/${f}")).alarm,
+          try(local.overrides.canaries[dirname(f)].alarm, {})
+        )
+      }
+    )
   }
 }
 
@@ -104,9 +126,9 @@ resource "aws_synthetics_canary" "this" {
   }
 
   run_config {
-    timeout_in_seconds = each.value.timeout_in_seconds
-    memory_in_mb       = each.value.memory_in_mb
-    active_tracing     = each.value.active_tracing
+    timeout_in_seconds    = each.value.timeout_in_seconds
+    memory_in_mb          = each.value.memory_in_mb
+    active_tracing        = each.value.active_tracing
     environment_variables = try(each.value.environment_variables, {})
   }
 

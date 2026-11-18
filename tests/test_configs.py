@@ -6,7 +6,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIGS = sorted((ROOT / "src").glob("*/config.yml"))
-PLANS = yaml.safe_load((ROOT / "terraform/config/dev/response_plans.yml").read_text())
+PLANS = yaml.safe_load((ROOT / "terraform/config/response_plans.yml").read_text())
 
 
 def load(path):
