@@ -13,13 +13,19 @@ notification design and open TODOs.
   `response_plans.yml` (who is emailed through SNS when an alarm fires)
 
 ## Canaries
-- `ui_journey` – browser check: host page loads, our app renders (alarm on this)
-- `api_search` – plain HTTP check of the CloudFront API (tells you where a failure is)
+- `http_checks` – every minute: `GET search.mydomain.com/index.js` (S3) and `POST search.mydomain.com/api/q` (VPC origin). Both run every time; a failure names the failing route. The 99.9% uptime figure comes from this canary only.
+- `ui_journey` – every 30 minutes: browser check that the partner page loads and our app renders. Alerts go to the lower-priority `partner` response plan.
 
-URLs are in each `config.yml` (`environment_variables`); both are `example.com` placeholders.
+URLs, the `/api/q` request body and the response key are in each `config.yml` (`environment_variables`); all are placeholders.
+
+## Test
+```sh
+pip install -r tests/requirements.txt
+pytest tests
+```
 
 ## Add a canary
-Copy `src/api_search`, edit `config.yml` and the handler. Handler files must use
+Copy `src/http_checks`, edit `config.yml` and the handler. Handler files must use
 underscores (Python import), e.g. `handler: my_check.handler`.
 
 ## Deploy
