@@ -95,3 +95,15 @@ resource "aws_sns_topic_subscription" "teams_cloudfront" {
   protocol  = "lambda"
   endpoint  = aws_lambda_function.teams_notifier[0].arn
 }
+
+# Keep existing state when these resources changed from count / the "main" key to per-plan keys.
+# Assumes alarm_response_plan was left at its default ("default"); adjust if an environment differs.
+moved {
+  from = aws_sns_topic_subscription.teams[0]
+  to   = aws_sns_topic_subscription.teams["default"]
+}
+
+moved {
+  from = aws_lambda_permission.sns["main"]
+  to   = aws_lambda_permission.sns["default"]
+}
