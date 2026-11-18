@@ -1,0 +1,34 @@
+# Run with prek (https://github.com/j178/prek): `prek install` once per clone, `prek run --all-files` anytime.
+# Mirrors the CI lint jobs so failures show up before the push.
+default_install_hook_types = ["pre-commit", "pre-push"]
+
+[[repos]]
+repo = "builtin"
+hooks = [
+  { id = "trailing-whitespace" },
+  { id = "end-of-file-fixer" },
+  # .gitlab-ci.yml starts with a `spec:` header document
+  { id = "check-yaml", args = ["--allow-multiple-documents"] },
+  # .vscode/*.json is JSONC
+  { id = "check-json", exclude = "^\\.vscode/" },
+  { id = "check-merge-conflict" },
+  { id = "detect-private-key" },
+  { id = "check-added-large-files" },
+]
+
+[[repos]]
+repo = "https://github.com/astral-sh/ruff-pre-commit"
+rev = "v0.17.5"
+hooks = [
+  # correctness rules only; the existing code has style findings under ruff's wider defaults
+  { id = "ruff-check", args = ["--isolated", "--select", "E4,E7,E9,F"] },
+]
+
+[[repos]]
+repo = "local"
+hooks = [
+  { id = "tofu-fmt", name = "tofu fmt", entry = "tofu fmt", language = "system", files = "\\.(tf|tfvars)$" },
+  # needs `tflint --init` once per clone (downloads the AWS ruleset plugin)
+  { id = "tflint", name = "tflint", entry = "tflint --chdir terraform/manifests", language = "system", pass_filenames = false, files = "\\.(tf|tfvars|hcl)$" },
+  { id = "pytest", name = "pytest", entry = "uv run pytest -q", language = "system", pass_filenames = false, always_run = true, stages = ["pre-push"] },
+]

@@ -4,3 +4,7 @@
 __pycache__/
 *.pyc
 .claude/
+build/
+.aws-sam/
+.env.local
+.venv/

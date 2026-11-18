@@ -1,0 +1,45 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "aws-sam",
+      "request": "direct-invoke",
+      "name": "Debug http_checks (SAM)",
+      "preLaunchTask": "Prepare http_checks for debugging",
+      "invokeTarget": {
+        "target": "template",
+        "templatePath": "${workspaceFolder}/build/sam/http_checks/template.yml",
+        "logicalId": "Canary"
+      },
+      "lambda": {
+        "payload": {
+          "path": "${workspaceFolder}/build/sam/http_checks/event.json"
+        },
+        "environmentVariables": {}
+      },
+      "sam": {
+        "skipNewImageCheck": true
+      }
+    },
+    {
+      "type": "aws-sam",
+      "request": "direct-invoke",
+      "name": "Debug ui_journey (SAM)",
+      "preLaunchTask": "Prepare ui_journey for debugging",
+      "invokeTarget": {
+        "target": "template",
+        "templatePath": "${workspaceFolder}/build/sam/ui_journey/template.yml",
+        "logicalId": "Canary"
+      },
+      "lambda": {
+        "payload": {
+          "path": "${workspaceFolder}/build/sam/ui_journey/event.json"
+        },
+        "environmentVariables": {}
+      },
+      "sam": {
+        "skipNewImageCheck": true
+      }
+    }
+  ]
+}

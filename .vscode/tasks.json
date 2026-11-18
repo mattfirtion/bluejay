@@ -1,0 +1,80 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run canary (SAM, no deploy)",
+      "type": "shell",
+      "command": "uv run scripts/run_canary.py ${input:canary} ${input:env}",
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    },
+    {
+      "label": "Prepare ui_journey for debugging",
+      "type": "shell",
+      "command": "uv run scripts/run_canary.py ui_journey ${input:env} --prepare-only",
+      "presentation": {
+        "reveal": "silent"
+      },
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    },
+    {
+      "label": "Prepare http_checks for debugging",
+      "type": "shell",
+      "command": "uv run scripts/run_canary.py http_checks ${input:env} --prepare-only",
+      "presentation": {
+        "reveal": "silent"
+      },
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    },
+    {
+      "label": "Unit tests",
+      "type": "shell",
+      "command": "uv run pytest",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "canary",
+      "type": "pickString",
+      "description": "Canary",
+      "options": [
+        "http_checks",
+        "ui_journey"
+      ],
+      "default": "http_checks"
+    },
+    {
+      "id": "env",
+      "type": "pickString",
+      "description": "Environment whose URLs/settings to run against",
+      "options": [
+        "prod",
+        "staging",
+        "test",
+        "dev"
+      ],
+      "default": "prod"
+    }
+  ]
+}

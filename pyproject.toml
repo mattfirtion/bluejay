@@ -1,0 +1,25 @@
+[project]
+name = "ss-canary"
+version = "0.0.0"
+description = "CloudWatch Synthetics canaries"
+requires-python = ">=3.11"
+dependencies = []
+
+# Not deployed: the canary zips contain only src/<canary>/python. These are for the IDE and tests.
+# selenium is provided by the Synthetics runtime (syn-python-selenium-*); aws_synthetics is not on
+# PyPI, so stubs/ declares just enough of it for completion and type checking.
+[dependency-groups]
+dev = [
+  "pytest",
+  "pyyaml",
+  "selenium>=4,<5",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+# Pylance / Pyright
+[tool.pyright]
+extraPaths = ["stubs", "src/http_checks/python", "src/ui_journey/python"]
+venvPath = "."
+venv = ".venv"
