@@ -1,0 +1,276 @@
+spec:
+  inputs:
+    environment:
+      description: >
+        Deploy this pipeline's commit (any branch) to one environment. "none" runs checks only.
+        Staging and prod still wait for a manual click on the deploy job.
+      type: string
+      options: [none, dev, test, staging, prod]
+      default: none
+---
+stages: [lint, test, validate, plan, deploy]
+
+# Runs: merge requests, the default branch, and manual "Run pipeline" (where `environment` is chosen).
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "web"
+
+variables:
+  TOFU_VERSION: "1.13.9"
+
+# ---------------------------------------------------------------------------
+# Templates
+# ---------------------------------------------------------------------------
+.python:
+  image: ghcr.io/astral-sh/uv:python3.13-bookworm # uv + git (prek needs git)
+  cache:
+    key:
+      files: [uv.lock]
+    paths: [.cache/uv]
+  variables:
+    UV_CACHE_DIR: $CI_PROJECT_DIR/.cache/uv
+    UV_LINK_MODE: copy
+
+.tofu:
+  image:
+    name: ghcr.io/opentofu/opentofu:${TOFU_VERSION}
+    entrypoint: [""]
+  variables:
+    TF_IN_AUTOMATION: "true"
+    TF_INPUT: "false"
+    TF_PLUGIN_CACHE_DIR: $CI_PROJECT_DIR/.cache/tofu-plugins
+    TF_VAR_environment: $ENV
+  cache:
+    key:
+      files: [terraform/manifests/.terraform.lock.hcl]
+    paths: [.cache/tofu-plugins]
+  before_script:
+    - mkdir -p "$TF_PLUGIN_CACHE_DIR"
+    - cd terraform/manifests
+
+# AWS auth: the runner's EC2 instance role assumes AWS_ROLE_ARN, a CI/CD variable scoped to each
+# environment (dev, test, staging, prod; `environment: $ENV` on the job selects it).
+# dev/test live in account-lab, staging/prod in account-prod; each account has its own state bucket
+# (config/backend-$ACCOUNT.hcl). Docker executor: IMDSv2 hop limit must be >= 2.
+# Each account has its own runner (EC2 + instance role); jobs pick it by the tag account-<lab|prod>.
+.aws:
+  tags: ["account-$ACCOUNT"]
+  variables:
+    AWS_CONFIG_FILE: /tmp/aws-config
+    AWS_PROFILE: target
+
+.tofu-aws:
+  extends: [.tofu, .aws]
+  before_script:
+    - mkdir -p "$TF_PLUGIN_CACHE_DIR"
+    - printf '[profile target]\nrole_arn = %s\ncredential_source = Ec2InstanceMetadata\n' "$AWS_ROLE_ARN" > "$AWS_CONFIG_FILE"
+    - cd terraform/manifests
+    - tofu init -backend-config=../config/backend.hcl -backend-config=../config/backend-$ACCOUNT.hcl
+
+# ---------------------------------------------------------------------------
+# Lint / test / validate (no AWS access)
+# ---------------------------------------------------------------------------
+fmt:
+  stage: lint
+  extends: .tofu
+  variables: { ENV: dev }
+  script: tofu fmt -check -recursive -diff ..
+
+# Same hooks as local `prek run --all-files` (prek.toml): file hygiene, yaml/json, ruff.
+# tofu fmt and tflint run in their own jobs (tool images); pytest runs in the test stage.
+prek:
+  stage: lint
+  extends: .python
+  variables:
+    SKIP: tofu-fmt,tflint
+  script:
+    - uvx prek run --all-files --show-diff-on-failure
+
+tflint:
+  stage: lint
+  image:
+    name: ghcr.io/terraform-linters/tflint:v0.66.0
+    entrypoint: [""]
+  variables:
+    TFLINT_PLUGIN_DIR: $CI_PROJECT_DIR/.cache/tflint-plugins
+    # GITHUB_TOKEN: set as a CI/CD variable if the plugin download hits GitHub rate limits
+  cache:
+    key:
+      files: [terraform/manifests/.tflint.hcl]
+    paths: [.cache/tflint-plugins]
+  script:
+    - tflint --init --chdir terraform/manifests
+    - tflint --chdir terraform/manifests
+
+kics:
+  stage: lint
+  image:
+    name: checkmarx/kics:latest
+    entrypoint: [""]
+  script:
+    - /app/bin/kics scan -p terraform -o kics-results --report-formats json --ci --fail-on high
+  artifacts:
+    when: always
+    paths: [kics-results]
+  # Flip to blocking once the existing findings are triaged.
+  allow_failure: true
+
+pytest:
+  stage: test
+  extends: .python
+  script:
+    - uv run pytest --junitxml=report.xml
+  artifacts:
+    when: always
+    reports:
+      junit: report.xml
+
+validate:
+  stage: validate
+  extends: .tofu
+  variables: { ENV: dev }
+  script:
+    - tofu init -backend=false
+    - tofu validate
+
+# ---------------------------------------------------------------------------
+# Smoke test: run the real canary code in the Synthetics runtime (SAM + Docker) against live
+# prod URLs, without deploying. Merge requests only. Needs a runner with Docker and the SAM CLI
+# (`uv tool install aws-sam-cli`; uv on the host); SAM bind-mounts the build dir, so the account-prod runner should be a
+# shell executor.
+# CI/CD variables: SYNTHETICS_LAYER_ARN, SYNTHETICS_LAMBDA_RUNTIME, SMOKE_ARTIFACT_BUCKET
+# (see scripts/run_canary.py).
+# ---------------------------------------------------------------------------
+smoke:
+  stage: validate
+  extends: .aws
+  parallel:
+    matrix:
+      - CANARY: [http_checks, ui_journey]
+  variables:
+    ENV: prod
+    ACCOUNT: prod
+  environment:
+    name: prod
+    action: prepare
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  allow_failure: true
+  before_script:
+    - printf '[profile target]\nrole_arn = %s\ncredential_source = Ec2InstanceMetadata\n' "$AWS_ROLE_ARN" > "$AWS_CONFIG_FILE"
+    - uv tool install aws-sam-cli
+    - export PATH="$(uv tool dir --bin):$PATH"
+  script:
+    - uv run scripts/run_canary.py $CANARY $ENV
+  artifacts:
+    when: always
+    paths: [build/sam/$CANARY/event.json]
+
+# ---------------------------------------------------------------------------
+# Plan + deploy.
+#  - merge requests / default branch: plan every env; on the default branch dev and test deploy
+#    automatically (test after dev), staging and prod are manual (each after the previous env).
+#  - manual "Run pipeline" with input `environment`: plan + deploy only that env, from any branch.
+# Apply uses the exact plan produced in the same pipeline; one deploy per env at a time.
+# ---------------------------------------------------------------------------
+.plan:
+  stage: plan
+  extends: .tofu-aws
+  environment:
+    name: $ENV
+    action: prepare
+  script:
+    - tofu plan -var-file=../config/$ENV/vars.tfvars -out=plan.tfplan
+    - tofu show -json plan.tfplan > plan.json
+  artifacts:
+    paths:
+      - terraform/manifests/plan.tfplan
+      - terraform/manifests/.terraform.lock.hcl
+    reports:
+      terraform: terraform/manifests/plan.json
+    expire_in: 1 week
+
+.deploy:
+  stage: deploy
+  extends: .tofu-aws
+  resource_group: deploy-$ENV
+  environment:
+    name: $ENV
+  script:
+    - tofu apply plan.tfplan
+
+plan-dev:
+  extends: .plan
+  variables: { ENV: dev, ACCOUNT: lab }
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web" && "$[[ inputs.environment ]]" != "dev"
+      when: never
+    - when: on_success
+
+plan-test:
+  extends: .plan
+  variables: { ENV: test, ACCOUNT: lab }
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web" && "$[[ inputs.environment ]]" != "test"
+      when: never
+    - when: on_success
+
+plan-staging:
+  extends: .plan
+  variables: { ENV: staging, ACCOUNT: prod }
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web" && "$[[ inputs.environment ]]" != "staging"
+      when: never
+    - when: on_success
+
+plan-prod:
+  extends: .plan
+  variables: { ENV: prod, ACCOUNT: prod }
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web" && "$[[ inputs.environment ]]" != "prod"
+      when: never
+    - when: on_success
+
+deploy-dev:
+  extends: .deploy
+  variables: { ENV: dev, ACCOUNT: lab }
+  needs: [plan-dev]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web" && "$[[ inputs.environment ]]" == "dev"
+    - if: $CI_PIPELINE_SOURCE != "web" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+deploy-test:
+  extends: .deploy
+  variables: { ENV: test, ACCOUNT: lab }
+  needs:
+    - { job: deploy-dev, optional: true }
+    - plan-test
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web" && "$[[ inputs.environment ]]" == "test"
+    - if: $CI_PIPELINE_SOURCE != "web" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+deploy-staging:
+  extends: .deploy
+  variables: { ENV: staging, ACCOUNT: prod }
+  needs:
+    - { job: deploy-test, optional: true }
+    - plan-staging
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web" && "$[[ inputs.environment ]]" == "staging"
+      when: manual
+    - if: $CI_PIPELINE_SOURCE != "web" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+
+deploy-prod:
+  extends: .deploy
+  variables: { ENV: prod, ACCOUNT: prod }
+  needs:
+    - { job: deploy-staging, optional: true }
+    - plan-prod
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web" && "$[[ inputs.environment ]]" == "prod"
+      when: manual
+    - if: $CI_PIPELINE_SOURCE != "web" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
