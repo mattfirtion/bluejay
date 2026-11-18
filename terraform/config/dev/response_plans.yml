@@ -4,3 +4,8 @@
 default:
   emails:
     - matt.firtion@gmail.com
+
+# Lower priority: ui_journey failures (partner page). Same recipients for now.
+partner:
+  emails:
+    - matt.firtion@gmail.com

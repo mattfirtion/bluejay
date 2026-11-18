@@ -66,10 +66,10 @@ resource "aws_lambda_function" "teams_notifier" {
 }
 
 resource "aws_lambda_permission" "sns" {
-  for_each = var.enable_teams ? {
-    main       = aws_sns_topic.alerts[var.alarm_response_plan].arn
-    cloudfront = aws_sns_topic.cloudfront_alerts.arn
-  } : {}
+  for_each = var.enable_teams ? merge(
+    { for plan, t in aws_sns_topic.alerts : plan => t.arn },
+    { cloudfront = aws_sns_topic.cloudfront_alerts.arn },
+  ) : {}
 
   statement_id  = "AllowSNS-${each.key}"
   action        = "lambda:InvokeFunction"
@@ -79,9 +79,9 @@ resource "aws_lambda_permission" "sns" {
 }
 
 resource "aws_sns_topic_subscription" "teams" {
-  count = var.enable_teams ? 1 : 0
+  for_each = var.enable_teams ? aws_sns_topic.alerts : {}
 
-  topic_arn = aws_sns_topic.alerts[var.alarm_response_plan].arn
+  topic_arn = each.value.arn
   protocol  = "lambda"
   endpoint  = aws_lambda_function.teams_notifier[0].arn
 }

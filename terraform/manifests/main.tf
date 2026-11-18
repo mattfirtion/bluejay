@@ -146,7 +146,7 @@ resource "aws_cloudwatch_metric_alarm" "failed" {
   metric_name         = "SuccessPercent"
   dimensions          = { CanaryName = aws_synthetics_canary.this[each.key].name }
   statistic           = "Average"
-  period              = 300
+  period              = try(each.value.alarm.period_seconds, 300)
   comparison_operator = "LessThanThreshold"
   threshold           = 100
   evaluation_periods  = each.value.alarm.evaluation_periods
