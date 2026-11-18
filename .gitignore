@@ -1,3 +1,6 @@
 .terraform/
 .build/
 *.tfstate*
+__pycache__/
+*.pyc
+.claude/
